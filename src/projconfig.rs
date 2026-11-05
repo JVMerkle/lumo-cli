@@ -40,6 +40,9 @@ pub struct FileConfig {
     pub ro: Option<bool>,
     pub noexec: Option<bool>,
     pub no_history: Option<bool>,
+    /// Export the ongoing conversation (cleartext) to this JSON file, in the
+    /// ChatGPT "conversations.json" per-conversation format.
+    pub export_conversation: Option<String>,
 }
 
 /// The loaded, approved project configuration.
@@ -216,6 +219,11 @@ fn describe_settings(file: &FileConfig) {
     }
     if let Some(n) = file.max_turns {
         bits.push(format!("max_turns={n}"));
+    }
+    if let Some(p) = &file.export_conversation {
+        bits.push(format!(
+            "export_conversation={p} (conversation transcript written in cleartext)"
+        ));
     }
     if !bits.is_empty() {
         eprintln!("  - settings: {}", bits.join(", "));

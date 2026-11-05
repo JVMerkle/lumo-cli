@@ -235,6 +235,7 @@ pub async fn run_repl(
     sandbox: Option<crate::sandbox::Sandbox>,
     audit: Option<crate::audit::AuditLog>,
     mut pending_attach: Option<String>,
+    mut transcript: Option<crate::transcript::ChatTranscript>,
 ) -> Result<()> {
     print_banner(&client, &cfg, sandbox.as_ref());
     if pending_attach.is_some() {
@@ -272,6 +273,7 @@ pub async fn run_repl(
                 &mut cfg,
                 audit.as_ref(),
                 &mut pending_attach,
+                transcript.as_mut(),
             )
             .await?
             {
@@ -307,6 +309,10 @@ pub async fn run_repl(
             println!("{} {e:#}", "error:".red().bold());
         } else if cfg.agent_mode && cfg.commit && !cfg.dry_run {
             maybe_commit(input);
+        }
+        // Mirror any new user/assistant turns into the cleartext export.
+        if let Some(t) = transcript.as_mut() {
+            t.sync(&client.history);
         }
     }
 
@@ -395,6 +401,7 @@ async fn handle_slash(
     cfg: &mut ReplConfig,
     audit: Option<&crate::audit::AuditLog>,
     pending_attach: &mut Option<String>,
+    mut transcript: Option<&mut crate::transcript::ChatTranscript>,
 ) -> Result<SlashResult> {
     let mut parts = cmd.split_whitespace();
     match parts.next().unwrap_or("") {
@@ -464,6 +471,9 @@ async fn handle_slash(
         }
         "clear" => {
             client.clear_history();
+            if let Some(t) = transcript.as_mut() {
+                t.reset();
+            }
             println!("  history cleared");
         }
         "login" => {
@@ -505,6 +515,9 @@ async fn handle_slash(
         "chat" => {
             cfg.agent_mode = !cfg.agent_mode;
             client.clear_history(); // system prompt differs between modes
+            if let Some(t) = transcript.as_mut() {
+                t.reset();
+            }
             println!(
                 "  mode: {} (history cleared)",
                 if cfg.agent_mode { "agent" } else { "chat" }

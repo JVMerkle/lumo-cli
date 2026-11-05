@@ -30,6 +30,7 @@ mod protocol;
 mod sandbox;
 mod serve;
 mod tools;
+mod transcript;
 mod ui;
 
 /// Default for `--max-turns`; also lets the project config's value apply only
@@ -39,6 +40,7 @@ const DEFAULT_MAX_TURNS: usize = 40;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use owo_colors::OwoColorize;
+use std::path::PathBuf;
 
 use crate::client::LumoClient;
 use crate::sandbox::Sandbox;
@@ -114,6 +116,11 @@ struct Cli {
     /// Do not read or write the REPL input history (~/.config/lumo-cli/history.txt)
     #[arg(long, global = true)]
     no_history: bool,
+
+    /// Continuously export this conversation (CLEARTEXT!) to a JSON file, in
+    /// the per-conversation format of a ChatGPT "conversations.json" export.
+    #[arg(long, value_name = "FILE", global = true)]
+    export_conversation: Option<PathBuf>,
 
     #[command(subcommand)]
     command: Option<Command>,
@@ -373,11 +380,32 @@ async fn async_main(cli: Cli) -> Result<()> {
         None
     };
 
+    // Continuous conversation export, if requested via CLI or the (approved)
+    // project config. One file per session, written in CLEARTEXT.
+    let export_path = cli
+        .export_conversation
+        .or_else(|| pf.and_then(|c| c.export_conversation.clone().map(PathBuf::from)));
+    let mut transcript = match export_path {
+        Some(p) => {
+            let t = transcript::ChatTranscript::open(p.clone())?;
+            eprintln!(
+                "{} conversation exported in CLEARTEXT to {}",
+                "export:".cyan().bold(),
+                p.display()
+            );
+            Some(t)
+        }
+        None => None,
+    };
+
     // Read any attachments once (a bad file is a hard startup error).
     let attach_block = attach::build_block(&cli.attach)?;
 
     if let Some(prompt) = cli.prompt {
         let prompt = attach::prepend(&attach_block, &prompt);
+        if let Some(t) = transcript.as_mut() {
+            t.sync(&client.history);
+        }
         return one_shot(
             client,
             &prompt,
@@ -403,6 +431,7 @@ async fn async_main(cli: Cli) -> Result<()> {
         sandbox,
         audit,
         attach_block,
+        transcript,
     )
     .await
 }
