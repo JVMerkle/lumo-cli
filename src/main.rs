@@ -339,7 +339,7 @@ async fn async_main(cli: Cli) -> Result<()> {
     let no_sandbox = cli.no_sandbox || pf.and_then(|c| c.no_sandbox).unwrap_or(false);
     let ro = cli.ro || pf.and_then(|c| c.ro).unwrap_or(false);
     let noexec = cli.noexec || pf.and_then(|c| c.noexec).unwrap_or(false);
-    let no_history = cli.no_history;
+    let no_history = cli.no_history || pf.and_then(|c| c.no_history).unwrap_or(false);
 
     // Non-fatal: warn if the deployed Lumo web app has a different major
     // version than the one this protocol was tested against.

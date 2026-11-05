@@ -39,6 +39,7 @@ pub struct FileConfig {
     // More-restrictive switches (safe to enable):
     pub ro: Option<bool>,
     pub noexec: Option<bool>,
+    pub no_history: Option<bool>,
 }
 
 /// The loaded, approved project configuration.
