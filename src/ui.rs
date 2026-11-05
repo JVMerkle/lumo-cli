@@ -167,6 +167,7 @@ pub struct ReplConfig {
     pub auto_approve: bool,
     pub dry_run: bool,
     pub commit: bool,
+    pub no_history: bool,
 }
 
 /// Commit the working tree in the project's git repo, if there is one and it has
@@ -244,7 +245,7 @@ pub async fn run_repl(
     }
 
     let mut rl = rustyline::DefaultEditor::new()?;
-    if let Some(p) = history_path() {
+    if !cfg.no_history && let Some(p) = history_path() {
         let _ = rl.load_history(&p);
     }
 
@@ -309,7 +310,7 @@ pub async fn run_repl(
         }
     }
 
-    if let Some(p) = history_path() {
+    if !cfg.no_history && let Some(p) = history_path() {
         if let Some(dir) = p.parent() {
             let _ = std::fs::create_dir_all(dir);
         }

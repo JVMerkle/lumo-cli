@@ -111,6 +111,10 @@ struct Cli {
     #[arg(long, global = true)]
     noexec: bool,
 
+    /// Do not read or write the REPL input history (~/.config/lumo-cli/history.txt)
+    #[arg(long, global = true)]
+    no_history: bool,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -335,6 +339,7 @@ async fn async_main(cli: Cli) -> Result<()> {
     let no_sandbox = cli.no_sandbox || pf.and_then(|c| c.no_sandbox).unwrap_or(false);
     let ro = cli.ro || pf.and_then(|c| c.ro).unwrap_or(false);
     let noexec = cli.noexec || pf.and_then(|c| c.noexec).unwrap_or(false);
+    let no_history = cli.no_history;
 
     // Non-fatal: warn if the deployed Lumo web app has a different major
     // version than the one this protocol was tested against.
@@ -393,6 +398,7 @@ async fn async_main(cli: Cli) -> Result<()> {
             auto_approve: yolo,
             dry_run,
             commit,
+            no_history,
         },
         sandbox,
         audit,
