@@ -12,6 +12,9 @@ use serde_json::Value;
 use crate::sandbox::Sandbox;
 
 const MAX_TOOL_OUTPUT: usize = 12_000; // chars fed back to the model
+// Window budget for read_file: leave room for the "showing lines X-Y" footer so
+// truncate_output never shears it off (and the reader knows more exists).
+const READ_CHAR_BUDGET: usize = MAX_TOOL_OUTPUT - 256;
 // Upper bound on files scanned line by line; the window returned is much smaller.
 const MAX_READ_BYTES: u64 = 32 * 1024 * 1024;
 const SKIP_DIRS: &[&str] = &[
@@ -335,15 +338,29 @@ fn read_file(path: &Path, offset: usize, limit: usize) -> Result<String> {
     // Stream the lines and keep only the requested window.
     let mut numbered: Vec<String> = Vec::new();
     let mut total = 0usize;
+    let mut used = 0usize; // running char count of the window
+    let mut char_budget_exhausted = false;
     for (i, line) in std::io::BufReader::new(file).lines().enumerate() {
         let line = line.map_err(|e| anyhow!("cannot read {} as text: {e}", path.display()))?;
-        if i >= skip && numbered.len() < limit {
-            numbered.push(format!("{:>5}| {}", i.saturating_add(1), line));
-        }
         total = total.saturating_add(1);
+        if char_budget_exhausted || i < skip || numbered.len() >= limit {
+            continue;
+        }
+        let rendered = format!("{:>5}| {}", i.saturating_add(1), line);
+        let cost = rendered.chars().count() + 1; // + newline
+        if used + cost > READ_CHAR_BUDGET {
+            char_budget_exhausted = true;
+            continue;
+        }
+        used += cost;
+        numbered.push(rendered);
     }
     let mut out = numbered.join("\n");
-    let shown_up_to = skip.saturating_add(limit).min(total);
+    let shown_up_to = if char_budget_exhausted {
+        skip.saturating_add(numbered.len())
+    } else {
+        skip.saturating_add(limit).min(total)
+    };
     if shown_up_to < total {
         out.push_str(&format!(
             "\n[showing lines {offset}-{shown_up_to} of {total}; use offset to read more]"
@@ -571,6 +588,33 @@ mod tests {
         let out = execute(&planned, None, true).await.unwrap();
         assert!(out.contains("[dry-run]"));
         assert!(!marker.exists(), "dry-run must not run the command");
+    }
+
+    #[test]
+    fn read_file_big_limit_keeps_footer_within_truncation_cap() {
+        // Reproduce the user's report: large file, huge `limit`, output must
+        // still fit MAX_TOOL_OUTPUT AND retain the "use offset" footer.
+        let dir = std::env::temp_dir().join("lumo_readfile_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("hist.test");
+        let mut body = String::new();
+        for i in 0..1047 {
+            body.push_str(&format!("{:>5}| {}\n", i, "x".repeat(150)));
+        }
+        std::fs::write(&p, &body).unwrap();
+
+        let out = read_file(&p, 1, usize::MAX).unwrap();
+        let out = truncate_output(out);
+        assert!(
+            out.contains("[showing lines"),
+            "footer must survive truncation, got tail: {:?}",
+            out.chars().rev().take(200).collect::<String>()
+        );
+        assert!(out.chars().count() <= MAX_TOOL_OUTPUT);
+        // And offset paging past the cap works:
+        let out2 = read_file(&p, 100, 50).unwrap();
+        assert!(out2.contains("100|"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
